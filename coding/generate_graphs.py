@@ -3,8 +3,11 @@ from models.graph_ddpm.ddpm import HealthcareGraphDDPM
 from models.graph_ddpm.config_graph import (GRAPH_PATH,OUTPUT_DIR)
 from models.graph_ddpm.training import load_graph_and_splits
 import torch
-
-data = torch.load(GRAPH_PATH)  # Load your graph data
+data = torch.load(
+    GRAPH_PATH,
+    map_location="cpu",
+    weights_only=False
+)
 ddpm = HealthcareGraphDDPM(data, hidden_dim=128, timesteps=1000)
 
 # Run a training epoch loop on your graph / sampled subgraphs

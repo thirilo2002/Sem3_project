@@ -67,8 +67,9 @@ class HeteroGraphDenoiser(nn.Module):
         })
         
         # Time embedding
+        # Time embedding
         self.time_embed = nn.Sequential(
-            nn.Linear(100, hidden_dim),
+            nn.Linear(hidden_dim, hidden_dim), # Changed 100 -> hidden_dim
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim)
         )
@@ -135,15 +136,22 @@ class HeteroGraphDenoiser(nn.Module):
         return eps_dict, edge_preds
 
     def _get_timestep_embedding(self, timesteps, embedding_dim):
+    # Ensure timesteps is 1D (e.g., shape [batch_size])
+        if timesteps.ndim == 0:
+            timesteps = timesteps.unsqueeze(0)
+            
         half_dim = embedding_dim // 2
         emb = math.log(10000) / (half_dim - 1)
         emb = torch.exp(torch.arange(half_dim, dtype=torch.float32, device=timesteps.device) * -emb)
+        
+        # timesteps: [B], emb: [half_dim] -> outer product: [B, half_dim]
         emb = timesteps.float().unsqueeze(1) * emb.unsqueeze(0)
-        emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)
+        emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=-1)
+        
         if embedding_dim % 2 == 1:
-            emb = F.pad(emb, (0, 1))
+            emb = torch.nn.functional.pad(emb, (0, 1))
+            
         return emb
-
 # ==========================================
 # 3. CONFIGURABLE HETEROGENEOUS DDPM TRAINER
 # ==========================================
@@ -163,8 +171,9 @@ class HealthcareGraphDDPM:
         self.optimizer.zero_grad()
         
         device = batch_data[batch_data.node_types[0]].x.device
-        batch_size_node = batch_data['claim'].x.size(0) # sample reference
-        t = torch.randint(0, self.timesteps, (batch_size_node,), device=device).long()
+        
+        # Sample a single graph-level timestep t (shape: [1])
+        t = torch.randint(0, self.timesteps, (1,), device=device).long()
         
         # Forward diffusion on node features
         x_noisy_dict = {}
@@ -174,13 +183,13 @@ class HealthcareGraphDDPM:
         for ntype, x in batch_data.x_dict.items():
             noise = torch.randn_like(x)
             noise_dict[ntype] = noise
-            # Match batch dimensions for diffusion application
-            t_node = torch.randint(0, self.timesteps, (x.size(0),), device=device).long()
-            x_noisy = self.diffusion.q_sample(x, t_node, noise=noise)
+            
+            # Apply q_sample using the graph-level timestep t (broadcasts across all nodes)
+            x_noisy = self.diffusion.q_sample(x, t, noise=noise)
             x_noisy_dict[ntype] = x_noisy
             
         # Denoiser prediction
-        eps_dict, edge_preds = self.denoiser(x_noisy_dict, batch_data.edge_index_dict, t[0])
+        eps_dict, edge_preds = self.denoiser(x_noisy_dict, batch_data.edge_index_dict, t)
         
         # Compute feature loss (MSE)
         for ntype in batch_data.node_types:
