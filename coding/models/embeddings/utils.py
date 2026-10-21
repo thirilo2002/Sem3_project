@@ -4,12 +4,18 @@ import numpy as np
 import torch
 from scipy.sparse import coo_matrix
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-
+from sklearn.metrics import (
+    accuracy_score,
+    average_precision_score,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
 SEED = 42
 
 
@@ -88,6 +94,8 @@ def get_provider_split(graph, node_offsets, node_counts, test_size=0.20, seed=SE
     return provider_labels, provider_node_ids, train_ids, test_ids
 
 
+
+
 def evaluate_provider_embeddings(
     embeddings,
     graph,
@@ -96,6 +104,8 @@ def evaluate_provider_embeddings(
     method_name="Embedding",
     test_size=0.20,
     seed=SEED,
+    plot_path=None,
+    show_plot=False
 ):
     """Train/evaluate a logistic-regression provider classifier from embeddings.
 
@@ -119,16 +129,28 @@ def evaluate_provider_embeddings(
 
     predictions = classifier.predict(provider_features[test_ids])
     probabilities = classifier.predict_proba(provider_features[test_ids])[:, 1]
-
+    
+    has_both_classes = len(np.unique(labels[test_ids])) == 2
     return {
         "Method": method_name,
         "Accuracy": accuracy_score(labels[test_ids], predictions),
+        "Precision": precision_score(
+            labels[test_ids], predictions, zero_division=0
+        ),
+        "Recall": recall_score(
+            labels[test_ids], predictions, zero_division=0
+        ),
         "Fraud F1": f1_score(
             labels[test_ids], predictions, zero_division=0
         ),
         "ROC-AUC": (
             roc_auc_score(labels[test_ids], probabilities)
-            if len(np.unique(labels[test_ids])) == 2
+            if has_both_classes
+            else np.nan
+        ),
+        "PR-AUC": (
+            average_precision_score(labels[test_ids], probabilities)
+            if has_both_classes
             else np.nan
         ),
     }
